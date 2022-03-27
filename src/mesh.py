@@ -25,7 +25,7 @@ def create_mesh(model, N=256, max_batch=32**3, verbose=False):
     """
     sdf_grid = compute_sdf_grid(model, N=N, max_batch=max_batch, verbose=verbose)
     mesh = convert_sdf_grid_to_mesh(sdf_grid, voxel_size=2. / (N - 1))
-    return mesh
+    return mesh, sdf_grid
 
 
 def compute_sdf_grid(model, N=256, max_batch=32**3, bbox=[(-1., -1., -1.), (1., 1., 1.)], verbose=False):
