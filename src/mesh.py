@@ -6,7 +6,7 @@ import time
 
 import numpy as np
 import trimesh
-from skimage.measure import marching_cubes
+from skimage import measure
 import torch
 
 
@@ -116,7 +116,7 @@ def convert_sdf_grid_to_mesh(sdf_grid, voxel_size=1., voxel_origin=[-1., -1., -1
         voxel_size = [voxel_size] * 3
 
     try:
-        verts, faces, normals, values = marching_cubes(sdf_grid_np, level=0., spacing=voxel_size)
+        verts, faces, normals, values = measure.marching_cubes(sdf_grid_np, level=0., spacing=voxel_size)
         verts += np.array(voxel_origin)
     except ValueError:  # no surface within range
         verts, faces = None, None
