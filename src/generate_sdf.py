@@ -2,18 +2,7 @@
 Generate sdf samples for given meshes.
 It can also save normals (as computed by IGL), but that changes
 the SDF computation to use pseudo-normals which is not robust to unclean meshes.
-
-Sampling types should be amongst:
-- "uniform" / "uniform_{SHAPE}"   where {SHAPE} is "cube" or "sphere" / "ball" (default="cube")
-- "nearsurface" / "nearsurface_{VAR}"   where {VAR} is the variance of the gaussian noise (default=0.005)
-- "surface"
-- "voxel_{RES}"   where {RES} is the desired resolution.
-
-Used on meshes contained in `1_normalized`.
 """
-
-# TODO: add multiprocessing to parallelized over meshes
-# (can be done outside of this script by creating multiple non-overlapping splits)
 
 import os, os.path
 import argparse
@@ -265,82 +254,39 @@ class VoxelSampler(Sampler):
         # voxel = voxel.reshape(RES, RES, RES, 4)
 
 
-def main(args):
-    np.random.seed(args.seed)
+    
+def sample_sdf_from_mesh(
+    mesh, 
+    surface_sample_num      = 25000, 
+    near_surface_sample_num = 250000,
+    bigger_variance         = 0.005
+):
+    ps_normal = False # pseudo normal test
+    
+    sampler1 = SurfaceSampler(mesh, ps_normal)
+    sampler1(surface_sample_num)
 
-    source, dest = args.source, args.dest
-    filenames = os.listdir(source)
-    os.makedirs(dest, exist_ok=True)
+    # samples with bigger_variance, and with 1/10 of that
+    # final size = 2*near_surface_sample_num
+    sampler2 = NearSurfaceSampler(mesh, ps_normal, bigger_variance)
+    sampler2(near_surface_sample_num) 
 
-    if args.split is not None:
-        with open(args.split) as f:
-            split = json.load(f)
-        filenames = [fn for fn in filenames if fn in split]
+    dict1 = sampler1.get_result_dict()
+    dict2 = sampler2.get_result_dict()
+    
+    #print('Surface', dict1)
+    #print('Near surface', dict2)
+    
+    all_sdf_samples = np.concatenate((
+        dict1['all'],
+        dict2['pos'],
+        dict2['neg']
+    ))
+    
+    # for newer versions of numpy
+    #rng = np.random.default_rng()
+    #rng.shuffle(all_sdf_samples)
+    np.random.shuffle(all_sdf_samples)
+    
+    return all_sdf_samples
 
-    n_shapes = len(filenames)
-    if args.verbose:
-        print(f"{n_shapes} shapes to process:")
-    for i, filename in enumerate(filenames):
-        if args.verbose and (i+1) % 100 == 0:
-            print(f"Generating for shape {i+1}/{n_shapes}...")
-
-        mesh = trimesh.load(os.path.join(source, filename))
-        destdir = os.path.join(dest, os.path.splitext(filename)[0])
-        os.makedirs(destdir, exist_ok=True)
-
-        # Mesh validity (watertight, enough negative SDF samples, ...)
-        valid_fn = os.path.join(destdir, "valid.json")
-        if os.path.isfile(valid_fn):
-            with open(valid_fn) as f:
-                validity = json.load(f)
-        else:
-            validity = {
-                "watertight": mesh.is_watertight,
-                "winding_consistent": mesh.is_winding_consistent,
-                "sdf" : {}
-            }
-
-        for sampling in args.sampling:
-            sample_fn = os.path.join(destdir, sampling + ".npz")
-
-            if args.skip and os.path.isfile(sample_fn):
-                continue
-
-            # Sample points and compute their SDF
-            sampler = Sampler.get_sampler(sampling, mesh, args.pseudo_normal)
-            sampler(args.n_samples)
-
-            # Test validity of sampling-based SDF
-            validity["sdf"][sampling] = sampler.get_validity()
-
-            # Save samples
-            tosave = sampler.get_result_dict()
-            np.savez(sample_fn, **tosave)
-        
-        # Save validity
-        with open(valid_fn, "w") as f:
-            json.dump(validity, f, indent=2)
-
-    if args.verbose:
-        print(f"Results saved in {dest}")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate SDF samples for meshes contained in a directory.")
-    parser.add_argument("source", help="source directory containing the meshes")
-    parser.add_argument("dest", help="destination directory to save the generated samples (one subdir will be created for each mesh in source)")
-    parser.add_argument("-s", "--sampling", nargs="+", required=True, help="all the types of sampling to use for generation, "
-                                                                           "results are saved in separate files (see script docstring)")
-
-    parser.add_argument("--double", action="store_true", help="save samples in double resolution (float64 instead of float32)")
-    parser.add_argument("-n", "--n-sample", default=250000, help="number of samples to generate per sampling type (unless fixed, e.g. for voxels)")
-    parser.add_argument("--pseudo-normal", action="store_true", help="compute the SDF using the pseudo-normal test, and also saves the normals")
-    parser.add_argument("--split", default=None, help="path to a JSON file containing a list of mesh to process from `source` (MUST containt the extension, e.g. '.obj')")
-    parser.add_argument("--seed", default=0, help="seed for the RNGs")
-    parser.add_argument("--skip", action="store_true", help="skip a type of generation if the result file already exists (note: this will skip it "
-                                                            "anyway even if samples were generated with a different method, see --pseudo-normal)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="increase script verbosity")
-
-    args = parser.parse_args()
-
-    main(args)
