@@ -254,7 +254,24 @@ class VoxelSampler(Sampler):
         # voxel = voxel.reshape(RES, RES, RES, 4)
 
 
+
+def mesh_mass_center(mesh):
+    return mesh.vertices.sum(axis=0) / mesh.vertices.shape[0]
+        
     
+def mesh_max_norm(mesh):
+    return np.sqrt(np.power(np.array(mesh.vertices), 2).sum(axis=1)).max()
+    
+        
+def make_mesh_canonical(mesh):
+    mass_center = mesh_mass_center(mesh)
+    mesh.vertices -= mesh_mass_center(mesh)
+
+    max_norm = mesh_max_norm(mesh)
+    mesh.vertices /= max_norm
+    return mesh
+
+        
 def sample_sdf_from_mesh(
     mesh, 
     surface_sample_num      = 25000, 
@@ -262,6 +279,7 @@ def sample_sdf_from_mesh(
     bigger_variance         = 0.005
 ):
     ps_normal = False # pseudo normal test
+    mesh = make_mesh_canonical(mesh)
     
     sampler1 = SurfaceSampler(mesh, ps_normal)
     sampler1(surface_sample_num)
