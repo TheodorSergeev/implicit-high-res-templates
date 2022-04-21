@@ -15,6 +15,7 @@ import trimesh
 import igl
 
 
+
 class Sampler():
     """Select adequate sampler and generate XYZ and SDF samples."""
 
@@ -133,6 +134,7 @@ class Sampler():
         return results
 
 
+
 class UniformSampler(Sampler):
     """
     Samples uniformly in a given shape.
@@ -184,6 +186,7 @@ class NearSurfaceSampler(Sampler):
         return samples
 
 
+
 class SurfaceSampler(Sampler):
     """Samples uniformly on the mesh surface."""
     def __init__(self, mesh, pseudo_normal):
@@ -212,6 +215,7 @@ class SurfaceSampler(Sampler):
     def _zero_sdf(self, tol=1e-4):
         """Verify that SDF on surface is nearly zero."""
         return bool((np.abs(self.sdf) < tol).all())
+
 
 
 class VoxelSampler(Sampler):
@@ -254,16 +258,75 @@ class VoxelSampler(Sampler):
         # voxel = voxel.reshape(RES, RES, RES, 4)
 
 
+    
+class WeightedSampler():
+    """Weighted sampling using rejection sampling"""
+    """Based on https://github.com/u2ni/ICML2021/blob/main/neuralImplicitTools/src/geometry.py"""  
+    
+    def __init__(self, mesh, beta):
+        self.beta = beta
+        return
+    
+    def sphere_sampling(self, n_samples):
+        """Sample uniformly from a unit sphere"""
+        rand_samples = np.random.rand(3, n_samples)
 
+        r = rand_samples[0]
+        phi = rand_samples[1] * np.pi * 2.
+        cos_phi = np.cos(phi)
+        sin_phi = np.sin(phi)
+        cos_theta = rand_samples[2] * 2. - 1.
+        sin_theta = np.sqrt(1. - cos_theta ** 2)
+
+        x = r * cos_phi * sin_theta
+        y = r * sin_phi * sin_theta
+        z = r * cos_theta
+
+        return np.stack([x, y, z], axis=-1)
+
+    
+    def weight_func(self, dist_to_surf):
+        """Calculate importance weight depending on abs(sdf)"""
+        return np.exp(- self.beta * np.abs(dist_to_surf))
+    
+    
+    def sample(self, mesh, n_uniform_samples, n_final_samples):
+        """Perform weighted sampling"""
+        uniform_samples = self.sphere_sampling(n_uniform_samples)
+        
+        pseudo_normal = False
+        dist = igl.signed_distance(uniform_samples, mesh.vertices, mesh.faces, 
+                                   return_normals=pseudo_normal)[0]
+        samples_weight = self.weight_func(dist)
+        
+        # probabilities to choose each
+        probs = samples_weight / np.sum(samples_weight)
+        # exclusive sum
+        C = np.concatenate(([0],np.cumsum(probs)))
+        C = C[0:-1]
+        # choose N random buckets
+        R = np.random.rand(n_final_samples)
+        # histc
+        I = np.array(np.digitize(R,C)) - 1
+
+        xyz = uniform_samples[I,:]
+        sdf = dist[I].reshape(-1,1)
+
+        return np.concatenate((xyz, sdf), axis=1)
+    
+    
+
+# Utility functions for standardizing meshes
 def mesh_mass_center(mesh):
+    """Center the mesh at (0,0,0)"""
     return mesh.vertices.sum(axis=0) / mesh.vertices.shape[0]
         
-    
 def mesh_max_norm(mesh):
+    """Normalize the mesh to a unit sphere"""
     return np.sqrt(np.power(np.array(mesh.vertices), 2).sum(axis=1)).max()
     
-        
 def make_mesh_canonical(mesh):
+    """Canonalize the mesh = center + normalize to unit sphere"""
     mass_center = mesh_mass_center(mesh)
     mesh.vertices -= mesh_mass_center(mesh)
 
@@ -271,7 +334,9 @@ def make_mesh_canonical(mesh):
     mesh.vertices /= max_norm
     return mesh
 
-        
+
+
+# Utility functions for standardizing meshes
 def sample_sdf_from_mesh(
     mesh, 
     surface_sample_num      = 25000, 
@@ -292,9 +357,6 @@ def sample_sdf_from_mesh(
     dict1 = sampler1.get_result_dict()
     dict2 = sampler2.get_result_dict()
     
-    #print('Surface', dict1)
-    #print('Near surface', dict2)
-    
     all_sdf_samples = np.concatenate((
         dict1['all'],
         dict2['pos'],
@@ -307,4 +369,20 @@ def sample_sdf_from_mesh(
     np.random.shuffle(all_sdf_samples)
     
     return all_sdf_samples
+
+
+def weighted_sample_sdf_from_mesh(
+    mesh, 
+    beta,
+    n_uniform_samples = 1000000,
+    n_final_samples   =  500000
+):
+    mesh = make_mesh_canonical(mesh)    
+
+    sampler = WeightedSampler(mesh, beta)
+    all_sdf_samples = sampler.sample(mesh, n_uniform_samples, n_final_samples) 
+
+    np.random.shuffle(all_sdf_samples)
+    return all_sdf_samples
+
 
