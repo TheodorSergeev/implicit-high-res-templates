@@ -1,3 +1,9 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 */__pycache__/
+
+# Notebook cache
+*.ipynb_checkpoints/
+
+# Output files
+generated_data/
