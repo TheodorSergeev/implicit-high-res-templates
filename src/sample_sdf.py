@@ -328,7 +328,7 @@ def mesh_max_norm(mesh):
 def make_mesh_canonical(mesh):
     """Canonalize the mesh = center + normalize to unit sphere"""
     mass_center = mesh_mass_center(mesh)
-    mesh.vertices -= mesh_mass_center(mesh)
+    mesh.vertices -= mass_center
 
     max_norm = mesh_max_norm(mesh)
     mesh.vertices /= max_norm
