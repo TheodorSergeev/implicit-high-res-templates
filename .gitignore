@@ -5,5 +5,9 @@ __pycache__/
 # Notebook cache
 *.ipynb_checkpoints/
 
+# Files with SDF samples
+*.npy
+*.npz
+
 # Output files
 generated_data/
