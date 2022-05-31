@@ -172,6 +172,7 @@ class UniformSampler(Sampler):
         return np.stack([x, y, z], axis=-1)
 
 
+# Sample from 2 normal distribution (with variance, and 0.1 * variance)
 class NearSurfaceSampler(Sampler):
     """Samples around the mesh surface."""
     def __init__(self, mesh, pseudo_normal, variance):
@@ -185,6 +186,19 @@ class NearSurfaceSampler(Sampler):
                                   surf_samples + np.random.normal(scale=sqrt(self.variance/10.), size=surf_samples.shape)], axis=0)
         return samples
 
+
+# Sample from 1 normal distribution
+class NearSurfaceSampler2(Sampler):
+    """Samples around the mesh surface."""
+    def __init__(self, mesh, pseudo_normal, variance):
+        super().__init__(mesh, pseudo_normal)
+        self.variance = variance
+    
+    def sample(self, n_samples):
+        """Sample on the surface, then add gaussian noise (twice)."""
+        surf_samples = self.mesh.sample(n_samples)
+        samples = surf_samples + np.random.normal(scale=sqrt(self.variance), size=surf_samples.shape)
+        return samples
 
 
 class SurfaceSampler(Sampler):
@@ -215,7 +229,6 @@ class SurfaceSampler(Sampler):
     def _zero_sdf(self, tol=1e-4):
         """Verify that SDF on surface is nearly zero."""
         return bool((np.abs(self.sdf) < tol).all())
-
 
 
 class VoxelSampler(Sampler):
@@ -256,7 +269,6 @@ class VoxelSampler(Sampler):
         # voxel[npz['pos_idx']] = npz['pos']
         # voxel[npz['neg_idx']] = npz['neg']
         # voxel = voxel.reshape(RES, RES, RES, 4)
-
 
     
 class WeightedSampler():
@@ -336,7 +348,7 @@ def make_mesh_canonical(mesh):
 
 
 
-# Utility functions for standardizing meshes
+# Use NearSurfaceSampler
 def sample_sdf_from_mesh(
     mesh, 
     surface_sample_num      = 25000, 
@@ -371,6 +383,48 @@ def sample_sdf_from_mesh(
     return all_sdf_samples
 
 
+# Use NearSurfaceSampler2 (finer control over # of points and variances)
+def sample_sdf_from_mesh2(
+    mesh, 
+    surface_sample_num       = 25  * 1000, 
+    close_surface_sample_num = 100 * 1000,
+    close_variance           = 1e-5,
+    far_surface_sample_num   = 50 * 1000,
+    far_variance             = 1e-3
+):
+    ps_normal = False # pseudo normal test
+    mesh = make_mesh_canonical(mesh)
+    
+    sampler1 = SurfaceSampler(mesh, ps_normal)
+    sampler1(surface_sample_num)
+
+    sampler2 = NearSurfaceSampler2(mesh, ps_normal, close_variance)
+    sampler2(close_surface_sample_num) 
+  
+    sampler3 = NearSurfaceSampler2(mesh, ps_normal, far_variance)
+    sampler3(far_surface_sample_num) 
+
+    dict1 = sampler1.get_result_dict()
+    dict2 = sampler2.get_result_dict()
+    dict3 = sampler3.get_result_dict()
+
+    all_sdf_samples = np.concatenate((
+        dict1['all'],
+        dict2['pos'],
+        dict2['neg'],
+        dict3['pos'],
+        dict3['neg']
+    ))
+    
+    # for newer versions of numpy
+    #rng = np.random.default_rng()
+    #rng.shuffle(all_sdf_samples)
+    np.random.shuffle(all_sdf_samples)
+    
+    return all_sdf_samples
+
+
+# Use weighted sampler    
 def weighted_sample_sdf_from_mesh(
     mesh, 
     beta,
