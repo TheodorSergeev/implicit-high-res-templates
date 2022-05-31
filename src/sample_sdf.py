@@ -348,6 +348,19 @@ def make_mesh_canonical(mesh):
 
 
 
+# Use SurfaceSampler
+def sample_sdf_from_mesh_surface(mesh, surface_sample_num = 25000):
+    ps_normal = False # pseudo normal test
+    mesh = make_mesh_canonical(mesh)
+    
+    sampler1 = SurfaceSampler(mesh, ps_normal)
+    sampler1(surface_sample_num)
+
+    all_sdf_samples = sampler1.get_result_dict()['all']    
+    np.random.shuffle(all_sdf_samples)    
+    return all_sdf_samples
+
+
 # Use NearSurfaceSampler
 def sample_sdf_from_mesh(
     mesh, 
